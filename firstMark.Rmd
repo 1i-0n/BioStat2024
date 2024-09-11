@@ -36,6 +36,8 @@ result
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
+# График с изменениями
+plot(pressure, main = "Pressure vs Temperature", col = "blue", pch = 19)
 
 ```
 
