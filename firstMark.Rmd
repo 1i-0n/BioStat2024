@@ -21,12 +21,22 @@ When you click the **Knit** button a document will be generated that includes bo
 summary(cars)
 ```
 
+## Simple Math Calculations
+
+Let's do a simple calculation using R:
+
+```{r math}
+x <- 42
+y <- 58
+result <- x + y
+result
+```
 ## Including Plots
 
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-plot(pressure)
+
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
