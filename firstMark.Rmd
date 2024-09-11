@@ -31,6 +31,16 @@ y <- 58
 result <- x + y
 result
 ```
+
+## Таблица с данными
+
+| Name  | Age | City     |
+|-------|-----|----------|
+| Anton | 29  | Omsk     |
+| Alisa | 27  | Moscow   |
+| Bob   | 32  | New York |
+
+
 ## Including Plots
 
 You can also embed plots, for example:
