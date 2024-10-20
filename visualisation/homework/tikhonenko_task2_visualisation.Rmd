@@ -1,0 +1,390 @@
+
+---
+title: "Visualisation Homework 2"
+author: "A.I. Tikhonenko"
+date: "2024-10-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, fig.width=16, fig.height=10)
+library(tidyverse)
+```
+
+## Data reading
+
+```{r dataLoading}
+hogwarts <- read_csv("data/hogwarts_2024.csv")
+```
+
+### Checking dataset structure
+
+```{r}
+
+hogwarts <- hogwarts |> mutate(
+  across(c(house, course, sex, wandCore, bloodStatus), ~ as.factor(.x))
+)
+
+#Пересоздание theme_custom
+
+
+theme_custom <- theme(
+    panel.background = element_rect(fill = "white"),
+    plot.title = element_text(size = 30, hjust = 0.5),
+    plot.subtitle = element_text(size = 25, hjust = 0.5),
+    strip.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 20)
+  )
+
+# Цвета факультетов
+faculty_colors <- c("Gryffindor" = "#C50000", 
+                    "Hufflepuff" = "#ECB939", 
+                    "Ravenclaw" = "#41A6D9", 
+                    "Slytherin" = "#1F5D25")
+
+# А еще мы создаем функцию для стандартной ошибки среднего
+se <- function(x){
+  sd(x, na.rm=TRUE)/sqrt(length(x))# для чего?
+}
+
+
+```
+
+# Диаграммы рассеяния (скаттерплоты)
+
+### 1. Связь между суммарным баллом и оценкой по травологии
+
+```{r, fig.width=14, fig.height=14, message = FALSE }
+hogwarts |> 
+  ggplot(aes(x = result, y = `Herbology exam`)) +
+  geom_point(shape = 21, 
+             size = 3, 
+             stroke = 2, 
+             fill = "blue",  
+             position = position_jitter(width = 2, height = 2)) +  
+geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1.5) +
+  labs(title = "Связь между итоговым баллом и оценкой по травологии",
+       x = "Суммарный балл за год",
+       y = "Оценка за экзамен по травологии") +
+  theme_custom  
+
+```
+
+**Комментарий:**
+Из графика видна корреляция между итоговым баллом и оценкой по травологии
+
+
+### 2. Связь между суммарным баллом и оценками за разные экзамены
+
+```{r,fig.width=14, fig.height=14, message = FALSE }
+
+# Создаем датафрейм только с нужными экзаменами
+exam_columns <- c("Herbology exam", "Muggle studies exam", "Divinations exam", "Potions exam")
+hogwarts_long <- hogwarts |> 
+  pivot_longer(cols = all_of(exam_columns), 
+               names_to = "exam", 
+               values_to = "score")
+
+# Построение графиков с разделением на экзамены и цветами факультетов
+hogwarts_long |> 
+  ggplot(aes(x = result, y = score)) +
+  geom_point(aes(fill = house),
+             shape = 21, 
+             size = 3, 
+             stroke = 2, 
+             position = position_jitter(width = 2, height = 2)) +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1.5) +
+  facet_wrap(~exam, scales = "free") +  # Разделение на несколько графиков по экзаменам
+  scale_fill_manual(values = faculty_colors) +  
+  labs(title = "Связь между итоговым баллом и оценками за разные экзамены",
+       x = "Суммарный балл за год",
+       y = "Оценка за экзамен") +
+  theme_custom  
+
+
+```
+
+**Комментарий:**
+Из графика видно, что оценки по всем рассмотренным предметам, кроме зельеварения, коррелируют с общим баллом. У факультета Slytherin, в целом, более высокий бал за зельеварение не зависимо от суммарного балла.
+
+### 3. Распределение студентов по факультету и происхождению (чистокровные и магглорожденные)
+
+```{r,fig.width=14, fig.height=14, message = FALSE }
+sex_colors <- c("male" = "darkblue", "female" = "darkorange")
+
+
+hogwarts_long |> 
+  ggplot(aes(x = result, y = score)) +
+  geom_point(aes(fill = house),  # Цвета точек по факультетам
+             shape = 21, 
+             size = 3, 
+             stroke = 2, 
+             position = position_jitter(width = 2, height = 2)) +
+  geom_smooth(aes(color = sex), method = "lm", se = FALSE, linewidth = 1.5) +  
+  facet_wrap(~exam, scales = "free") + # Разделение на несколько графиков по экзаменам
+  scale_fill_manual(values = faculty_colors) +  
+  scale_color_manual(values = sex_colors) +  
+  labs(title = "Связь между итоговым баллом и оценками по экзаменам с разделением по полу",
+       x = "Суммарный балл за год",
+       y = "Оценка за экзамен",
+       color = "Пол",  
+       fill = "Факультет") +  
+  theme_custom  
+```
+
+# geom_col и вещи вокруг него
+
+
+### 1. Распределение набранных баллов за первый семестр по происхождению
+
+```{r,fig.width=14, fig.height=14, message = FALSE }
+# Группируем данные
+hogwarts_summary <- hogwarts |> 
+  rowwise() |> 
+  mutate(semester_1_score = sum(c_across(starts_with("week_")), na.rm = TRUE)) |>  # Суммируем баллы за 1-17 недели
+  ungroup() |> 
+  group_by(bloodStatus) |>  # Группируем по происхождению
+  summarise(total_score = sum(semester_1_score))
+
+# Построение барплота
+hogwarts_summary |> 
+  ggplot(aes(x = bloodStatus, y = total_score, fill = bloodStatus)) +
+  geom_col() +  
+  labs(title = "Распределение набранных баллов за первый семестр по происхождению",
+       x = "Происхождение",
+       y = "Набранные баллы") +
+  scale_fill_manual(values = c("pure-blood" = "blue", "half-blood" = "green", "muggle-born" = "yellow")) +  # Цвета для категорий
+  theme_custom  
+
+```
+**Комментарий:**
+Суммарный балл у полукровок намного выше чем у остальных групп. Скорее всего это связанно с их численным превосходством. Так как мы брали абсолютные значения, а не среднее, то наш наш график чувствителен к количеству студентов в группе происхождения.
+
+### 2. Распределение набранных баллов за первый семестр по происхождению с количеством студентов
+
+```{r, fig.width=14, fig.height=14, message = FALSE }
+# Группируем данные
+hogwarts_summary <- hogwarts |> 
+  rowwise() |> 
+  mutate(semester_1_score = sum(c_across(starts_with("week_")))) |>  # Суммируем баллы за 1-17 недели
+  ungroup() |> 
+  group_by(bloodStatus) |>  # Группируем по происхождению
+  summarise(total_score = sum(semester_1_score), 
+            count_students = n())  # Добавляем количество студентов
+
+
+
+# Построение барплота с текстовыми метками
+hogwarts_summary |> 
+  ggplot(aes(x = reorder(bloodStatus, -total_score), # Сортировка 
+             y = total_score, 
+             fill = bloodStatus)) +  
+  geom_col() +  
+  geom_label(aes(label = count_students), 
+             color = "white", 
+             fill = "black", 
+             size = 6, 
+             fontface = "bold", 
+             vjust = -0.5) +  # Добавляем метки с количеством студентов
+  labs(title = "Распределение набранных баллов за первый семестр по происхождению",
+       x = "Происхождение студента",
+       y = "Общие набранные баллы") +
+  scale_fill_manual(values = c("pure-blood" = "blue", "half-blood" = "green", "muggle-born" = "yellow")) +  
+  theme_custom  
+
+```
+
+### 3. Распределение набранных баллов за первый семестр по происхождению и полу
+
+```{r,fig.width=25, fig.height=7, message = FALSE}
+# Группируем данные по происхождению и полу
+hogwarts_summary_gender <- hogwarts |> 
+  rowwise() |> 
+  mutate(semester_1_score = sum(c_across(starts_with("week_")))) |>  # Суммируем баллы за 1-17 недели
+  ungroup() |> 
+  group_by(bloodStatus, sex) |>  # Группируем по происхождению и полу
+  summarise(total_score = sum(semester_1_score), 
+            count_students = n())  # Добавляем количество студентов
+
+# Построение барплота с разбивкой по происхождению и полу
+barPlot_gender <- hogwarts_summary_gender |> 
+  ggplot(aes(x = total_score, y = fct_reorder(paste(bloodStatus, sex, sep = " - "), total_score), fill = bloodStatus)) +  
+  geom_col() +  
+  geom_text(aes(label = count_students), 
+            x = 21000,
+            color = "black", 
+            size = 6, 
+            hjust = 1.1) +  # Размещение меток справа
+  labs(title = "Распределение набранных баллов за первый семестр по происхождению и полу",
+       x = "Общие набранные баллы",
+       y = "Происхождение и пол студента") +
+  scale_fill_manual(values = c("pure-blood" = "blue", "half-blood" = "green", "muggle-born" = "yellow")) +  # Цвета для категорий
+  scale_x_continuous(breaks = seq(0, max(hogwarts_summary_gender$total_score), by = 1000)) +  # Шаг оси Y через 1000 баллов
+  theme_custom +
+  theme(axis.text.x = element_text(size = 16), 
+        axis.text.y = element_text(size = 18, face = "bold"))
+
+# Сохраняем график в формате PNG
+ggsave("hogwarts_gender_score_distribution.png", barPlot_gender, width = 20, height = 15, dpi = 300, units = "in")
+
+# Вывод графика с метками
+barPlot_gender
+
+```
+### 4. coord_flip()
+
+Функция coord_flip() полезна, когда необходимо быстро изменить ориентацию графика, особенно если нужно отобразить длинные категории или данные с большим количеством элементов. Она удобна для создания горизонтальных версий гистограмм, столбчатых диаграмм и boxplots, не меняя исходные эстетики.
+
+Плюсы:
+Простота: быстро меняет ориентацию без изменения эстетик.
+
+Минусы:
+Ограниченная поддержка: некоторые геометрии могут не поддерживать coord_flip().
+Меньший контроль: иногда требуется более точная настройка осей и геометрий, которая легче достигается заменой эстетик вручную.
+
+
+# Разное
+
+
+### 1. Lollipop plot: Студенты 5-го курса
+
+```{r,fig.width=25, fig.height=20, message = FALSE}
+# Подключение библиотеки для объединения графиков
+library(ggpubr)
+
+# Гистограмма для распределения баллов по зельеварению и древним рунам
+hist_combined <- ggplot(hogwarts, aes(x = `Potions exam`, fill = "Potions")) +
+  geom_histogram(binwidth = 10, color = "black", alpha = 0.5) +
+  geom_histogram(aes(x = `Study of ancient runes exam`, fill = "Ancient Runes"), binwidth = 10, color = "black", alpha = 0.5) +
+  scale_fill_manual(values = c("Potions" = "blue", "Ancient Runes" = "orange")) +
+  labs(title = "Распределение баллов за зельеварение и древние руны",
+       x = "Баллы за экзамен", y = "Частота", fill = "Экзамен") +
+  theme_custom
+
+# Диаграмма плотности для древних рун без разделения по происхождению
+density_runes <- ggplot(hogwarts, aes(x = `Study of ancient runes exam`)) +
+  geom_density(fill = "orange", alpha = 0.7) +
+  labs(title = "Плотность распределения баллов за древние руны",
+       x = "Баллы за древние руны", y = "Плотность") +
+  theme_custom
+
+# Диаграмма рассеяния для сравнения баллов по зельеварению и древним рунам
+scatter_comparison <- ggplot(hogwarts, aes(x = `Potions exam`, y = `Study of ancient runes exam`)) +
+  geom_point(size = 3, alpha = 0.6, color = "purple") +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1) +
+  labs(title = "Сравнение баллов за зельеварение и древние руны",
+       x = "Баллы за зельеварение", y = "Баллы за древние руны") +
+  theme_custom
+
+# Объединение графиков с использованием ggarrange
+final_plot <- ggarrange(
+  hist_combined, density_runes,   # Два графика в первой строке
+  scatter_comparison,             # Один график во второй строке, занимающий всю ширину
+  ncol = 2, nrow = 2,             # 2 столбца и 2 строки
+  heights = c(1, 1),              # Вторая строка занимает целиком нижнюю строку
+  widths = c(1, 1)                # Равные ширины для первой строки
+)
+
+# Сохранение графика
+ggsave("comparison_plot.png", final_plot, width = 20, height = 15, dpi = 300, units = "in")
+
+# Вывод объединенного графика
+final_plot
+
+
+```
+
+### 2. Histogram: Распределение баллов по астрономии
+
+```{r}
+ggplot(hogwarts, aes(x = `Astronomy exam`, fill = house == "Slytherin")) +  
+  geom_histogram(binwidth = 10, color = "black") +  
+  scale_fill_manual(values = c("FALSE" = "grey", "TRUE" = '#1F5D25'), labels = c("Other houses", "Slytherin")) +  
+  theme_bw() +
+  labs(
+       x = "Astronomy exam score",  
+       y = "Number of students",  
+       fill = "House") +  
+  theme(
+    text = element_text(size = 18),  
+    axis.title.x = element_text(size = 22),  
+    axis.title.y = element_text(size = 20),  
+    legend.title = element_text(size = 20),  
+    legend.text = element_text(size = 18)  
+  )
+```
+
+### 3. Настройка кастомной темы
+
+```{r}  
+theme_custom <- theme(
+  text = element_text(size = 14),  
+  plot.title = element_text(hjust = 0.5),  
+  panel.background = element_rect(fill = "white", color = NA),  
+  plot.background = element_rect(fill = "white", color = NA),  
+  panel.grid.major = element_line(color = "grey80"),  
+  panel.grid.minor = element_line(color = "grey90"),  
+  panel.border = element_rect(color = "black", fill = NA)  
+)
+
+# Применение кастомной темы 
+ggplot(hogwarts, aes(x = fct_reorder(house, -week_3), y = week_3)) +  
+  geom_boxplot(aes(fill = bloodStatus),  
+               notch = TRUE, 
+               outlier.shape = NA,  # Убираем отображение выбросов
+               lwd = 1,  # Толщина линий боксплота
+               width = 0.5) +  # Ширина боксплота
+  geom_jitter(aes(color = bloodStatus), width = 0.4, size = 2, alpha = 0.7) +  
+  scale_fill_manual(values = c("pure-blood" = "#41A6D9", 
+                               "half-blood" = "#ECB939", 
+                               "muggle-born" = "#305A30")) +  # Цвета для категорий bloodStatus
+  scale_color_manual(values = c("pure-blood" = "#51B6E9", 
+                                "half-blood" = "#FCC949", 
+                                "muggle-born" = "#406A40")) +  # Цвета для джиттера
+  labs(title = "Распределение баллов на 3-й неделе по факультетам и происхождению",
+       x = "Факультет",
+       y = "Баллы на 3-й неделе",
+       fill = "Происхождение",
+       color = "Происхождение") +
+  theme_custom
+```
+
+# Фасетирование
+
+### Обсуждение выбора фасетирования
+
+```markdown
+Все зависит от наших целей. Для визуализации гистограммы фасетирование по строкам лучше подходит для сравнения распределений, в то время как при фасетировании по столбцам лучше видна разница в абсолютных значениях. Для violin-плотов более наглядно будет видна разница в распределении при фасетировании по столбцам. В общем случае, я бы использовал фасетирование по строкам для графиков, где данные выстроены вдоль оси X, так как общая ось X позволяет представить данные более наглядно и компактно.
+```
+
+### Гистограмма с фасетированием по курсу
+
+```{r}
+ggplot(hogwarts, aes(x = `Astronomy exam`)) +
+  geom_histogram(binwidth = 10, color = "black", fill = "skyblue", alpha = 0.7) +  
+  facet_wrap(vars(course), ncol = 3) +  
+  theme_minimal() +
+  labs(title = "Распределение баллов за экзамен по астрономии",
+       x = "Баллы за экзамен по астрономии",
+       y = "Количество студентов") +
+  maintheme
+```
+
+### Плотность распределений с фасетированием по полу
+
+```{r}
+ggplot(hogwarts, aes(x = `Defence against the dark arts exam`)) +
+  geom_density(aes(fill = "Defence against the dark arts"), alpha = 0.5, color = "blue") +  
+  geom_density(aes(x = `Herbology exam`, fill = "Herbology"), alpha = 0.5, color = "green") +  
+  facet_grid(sex ~ .) +  # Фасетирование по полу
+  scale_fill_manual(values = c("Defence against the dark arts" = "blue", "Herbology" = "green")) +  
+  labs(title = "Распределение плотности вероятности оценок студентов",
+       x = "Оценки",
+       y = "Плотность",
+       fill = "Экзамен") +
+  theme_custom
+```
+
