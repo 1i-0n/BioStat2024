@@ -1,0 +1,87 @@
+---
+title: "Estimation of event probability"
+author: "Anton Tikhonenko"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+```
+
+## Модель пациента: исследование вероятности исцеления
+
+
+## Характеристики выздоровления
+
+```{r characteristics}
+
+true_prob <- 0.7 # Истинная вероятность выздоровления
+
+print(true_prob)
+
+
+```
+## Однократная оценка по выборке
+
+```{r sample_1}
+
+n_patients <- 1 # Количество добровольцев 
+
+patients_outcome <- rbinom(n_patients, 1, true_prob)   # Результаты добровольцев
+
+print(patients_outcome)
+
+sample_mean <- mean(patients_outcome)
+
+print(sample_mean)
+
+```
+
+## Набираем статистику
+
+```{r sample_n}
+
+n_patients <- 4 # Количество добровольцев 
+
+n_repeats <- 1000 # Количество повторений эксперимента
+
+df_all_repeats <- data.frame(
+  n_exp = rep(1:n_repeats, each = n_patients),
+  ID =  rep(1:n_patients, n_repeats),
+  recovered = rbinom(n_repeats * n_patients, 1, true_prob)
+)
+
+```
+
+## Оценка среднего в каждом эксперименте
+
+```{r estimations}
+
+df_sample_mean <- df_all_repeats %>% 
+  group_by(n_exp) %>% 
+  dplyr::summarise(mean_rec = mean(recovered)) %>% 
+  ungroup()
+
+ggplot(df_sample_mean, aes(x = mean_rec)) +
+  geom_histogram(color = 'black', fill = 'white', binwidth = 0.2) +
+  theme_bw()
+
+```
+
+## Количественные и качественные итоги
+
+```{r conclusions}
+
+error <- sqrt( mean((df_sample_mean$mean_rec-true_prob)^2) )
+print(error)
+
+```
+
+## Выводы
+
+Проведя исследование на различных объемах выборки, я установил, что ошибка оценки вероятности обратно пропорциональна квадратному корню из объема выборки. В частности, чтобы уменьшить ошибку в два раза, объем выборки необходимо увеличить в 4 раза.
+
