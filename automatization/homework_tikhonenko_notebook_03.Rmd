@@ -1,0 +1,466 @@
+---
+title: "automatization_notebook_03"
+author: "Tikhonenko Anton"
+output: word_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+
+library(flextable)
+
+library(ggplot2)
+library(RColorBrewer)
+  
+ 
+
+```
+
+# Чтение данных
+
+В вашем варианте нужно использовать датасет framingham.
+
+```{r}
+heart_data <- read.csv("./data/raw/framingham.csv")
+heart_data |> head()
+
+```
+
+# Общее описание данных
+
+```{r}
+
+heart_data |> glimpse()
+
+```
+
+# Очистка данных
+
+1) Уберите переменные, в которых пропущенных значений больше 20%, или уберите субъектов со слишком большим количеством пропущенных значений. Или совместите оба варианта. Напишите обоснование, почему вы выбрали тот или иной вариант:
+
+
+```{r}
+# Рассчитать процент пропущенных значений в каждой переменной
+heart_data %>% summarise(across(everything(), ~ mean(is.na(.)) * 100))
+
+
+heart_data %>% 
+  mutate(na_count = rowSums(is.na(.))) %>% 
+  count(na_count)
+
+
+heart_data_filtered <- heart_data %>% 
+  mutate(na_count = rowSums(is.na(.))) %>% 
+  filter(na_count < 3) %>% 
+  select(-na_count)
+
+# Обзор данных после фильтрации субъектов
+heart_data_filtered |> glimpse()
+
+
+
+```
+
+**Обоснование**: 
+Первый способ не имеет смысла так как по всем переменным процент NA меньше 10, поэтому мы применили второй способ. Удалили субъектов у которых пропущены больше двух значений.
+
+2) Переименуйте переменные в человекочитаемый вид (что делать с пробелами в названиях?);
+
+```{r}
+# Переименовать переменные в человекочитаемый вид 
+heart_data_filtered %>% 
+  rename(
+    Sex = male,
+    Age = age,
+    Education = education,
+    Current_Smoker = currentSmoker,
+    Cigarettes_Per_Day = cigsPerDay,
+    Blood_Pressure_Medication = BPMeds,
+    Prevalent_Stroke = prevalentStroke,
+    Prevalent_Hypertension = prevalentHyp,
+    Diabetes = diabetes,
+    Total_Cholesterol = totChol,
+    Systolic_BP = sysBP,
+    Diastolic_BP = diaBP,
+    Body_Mass_Index = BMI,
+    Heart_Rate = heartRate,
+    Glucose = glucose,
+    Ten_Year_Risk_CHD = TenYearCHD
+  ) %>%
+  mutate(
+    across(Sex, ~ factor(.x, levels = c(1, 0), labels = c("Male", "Female"))),
+    across(Education, ~ factor(.x, levels = c(1, 2, 3, 4), labels = c("Primary", "Secondary", "Higher", "Postgraduate"))),
+    across(Current_Smoker, ~ factor(.x, levels = c(1, 0), labels = c("Yes", "No"))),
+    across(Blood_Pressure_Meds, ~ factor(.x, levels = c(1, 0), labels = c("Yes", "No"))),
+    across(Prevalent_Stroke, ~ factor(.x, levels = c(1, 0), labels = c("Yes", "No"))),
+    across(Prevalent_Hypertension, ~ factor(.x, levels = c(1, 0), labels = c("Yes", "No"))),
+    across(Diabetes, ~ factor(.x, levels = c(1, 0), labels = c("Yes", "No"))),
+    across(Ten_Year_Risk_CHD, ~ factor(.x, levels = c(1, 0), labels = c("Yes", "No")))
+  ) %>% arrange(desc(Age)) -> cleaned_data
+
+# Проверить изменения в данных
+cleaned_data |> glimpse()
+```
+
+# Сохранение выбросов в файл outliers.csv 
+
+```{r}
+# Найти выбросы по правилу трех сигм
+numeric_columns <- cleaned_data %>% select(where(is.numeric))
+means <- colMeans(numeric_columns, na.rm = TRUE)
+sds <- apply(numeric_columns, 2, sd, na.rm = TRUE)
+upper_bounds <- means + 3 * sds
+lower_bounds <- means - 3 * sds
+
+# Фильтрация выбросов
+outliers <- cleaned_data %>%
+  rowwise() %>%
+  filter(any(c_across(where(is.numeric)) < lower_bounds | c_across(where(is.numeric)) > upper_bounds)) %>%
+  ungroup()
+
+# Сохранить выбросы в файл
+write.csv(outliers, "outliers.csv", row.names = FALSE)
+
+```
+
+
+
+# Сколько осталось переменных?
+
+```{r}
+ncol(cleaned_data)
+```
+
+# Сколько осталось случаев?
+
+```{r}
+nrow(cleaned_data)
+```
+
+# Есть ли в данных идентичные строки?
+
+```{r}
+any(duplicated(cleaned_data))
+```
+
+# Сколько всего переменных с пропущенными значениями в данных и сколько пропущенных точек в каждой такой переменной?
+
+```{r}
+# Сколько переменных имеют пропуски
+ cleaned_data %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>% print() %>%
+  summarise( number_of_vars_with_NA = sum(. > 0)) %>%
+ print()
+
+```
+
+# Описательные статистики
+
+## Количественные переменные
+
+1) Рассчитайте для всех количественных переменных для каждой группы (TenYearCHD):
+
+1.1) Количество значений;
+
+1.2) Количество пропущенных значений;
+
+1.3) Среднее;
+
+1.4) Медиану;
+
+1.5) Стандартное отклонение;
+
+1.6) 25% квантиль и 75% квантиль;
+
+1.7) Интерквартильный размах;
+
+1.8) Минимум;
+
+1.9) Максимум;
+
+1.10) 95% ДИ для среднего - задание со звёздочкой.
+
+# Описательные статистики для количественных переменных для каждой группы (Ten_Year_Risk_CHD)
+
+```{r }
+# Определение статистических функций для описания количественных переменных
+# Определение статистических функций для описания количественных переменных
+statistics <- list(
+  `_Количество субъектов` = ~length(.x) %>% as.character(),
+  `_Количество (есть данные)` = ~sum(!is.na(.x)) %>% as.character(),
+  `_Нет данных` = ~sum(is.na(.x)) %>% as.character(),
+  `_Ср. знач.` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", mean(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+  `_Станд. отклон.` = ~ifelse(sum(!is.na(.x)) < 3, "Н/П*", sd(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+  `_Мин. - Макс.` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", paste0(min(.x, na.rm = TRUE) %>% round(2), " - ", max(.x, na.rm = TRUE) %>% round(2))),
+  `_Медиана` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", median(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+  `_Q1 - Q3` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", paste0(quantile(.x, 0.25, na.rm = TRUE) %>% round(2), " - ", quantile(.x, 0.75, na.rm = TRUE) %>% round(2))),
+  `_Межкварт. размах` = ~ifelse(sum(!is.na(.x)) == 0, "Н/П*", IQR(.x, na.rm = TRUE) %>% round(2) %>% as.character()),
+  `_95% ДИ для ср.` = ~ifelse(sum(!is.na(.x)) < 3, "Н/П*", paste0(
+    (mean(.x, na.rm = TRUE) - qt(0.975, df = sum(!is.na(.x)) - 1) * sd(.x, na.rm = TRUE) / sqrt(sum(!is.na(.x)))) %>% round(2),
+    " - ",
+    (mean(.x, na.rm = TRUE) + qt(0.975, df = sum(!is.na(.x)) - 1) * sd(.x, na.rm = TRUE) / sqrt(sum(!is.na(.x)))) %>% round(2)
+  ))
+)
+
+# Рассчитываем статистики для всех количественных переменных для каждой группы Ten_Year_Risk_CHD
+summary_stats <- cleaned_data %>%
+  select(Ten_Year_Risk_CHD, where(is.numeric)) %>%
+  pivot_longer(cols = -Ten_Year_Risk_CHD, names_to = "Variable", values_to = "Value") %>%
+  group_by(Ten_Year_Risk_CHD, Variable) %>%
+  summarise(across(Value, statistics, .names = "{.fn}"), .groups = 'drop') %>%
+  ungroup() %>%
+  relocate(Variable, Ten_Year_Risk_CHD, .before = everything()) %>%
+  pivot_longer(cols = -c(Ten_Year_Risk_CHD, Variable), names_to = 'Statistics', values_to = 'Value') %>% pivot_wider(names_from = Statistics, values_from = Value) %>% arrange(Variable, Ten_Year_Risk_CHD) %>%
+  flextable() %>%
+  theme_box() %>%
+  align(align = "center", part = "all") %>%
+  merge_v(j = c("Variable"))
+# Вывод таблицы
+summary_stats
+```
+
+
+## Категориальные переменные
+
+1) Рассчитайте для всех категориальных переменных для каждой группы (TenYearCHD):
+
+1.1) Абсолютное количество;
+
+1.2) Относительное количество внутри группы;
+
+1.3) 95% ДИ для доли внутри группы - задание со звёздочкой.
+
+## Статистика по категориальным переменным
+
+```{r}
+
+  
+  get_cat_table_one_variable <- function(factor_data, group_variable, variable_name) {
+    
+    factor_data %>%
+      count(.data[[group_variable]], .data[[variable_name]], .drop = FALSE) %>%
+      mutate(`Relative frequency` = (n / sum(n)) %>% round(4) %>% `*`(100) %>% str_c("%")) %>%
+      
+      group_by(.data[[group_variable]]) %>%
+      mutate(`Relative frequency by group` = (n / sum(n)) %>% round(4) %>% `*`(100) %>% str_c("%")) %>%
+      ungroup() %>%
+      
+      rename(`Absolute frequency` = n) %>%
+      mutate(`Fisher test, p-value` = table(factor_data[[group_variable]], factor_data[[variable_name]]) %>% 
+               fisher.test() %>% .$p.value %>% round(3),
+             Variable = variable_name) %>%
+      rename(Value = .data[[variable_name]], Ten_Year_Risk_CHD = .data[[group_variable]])
+  }    
+
+cleaned_data %>%
+  select(where(is.factor)) -> factor_data
+factor_data
+group_variable <- "Ten_Year_Risk_CHD"
+  
+  
+  factor_data %>%
+    select(!group_variable) %>%
+    names() %>%
+    map_dfr(function(variable_name) get_cat_table_one_variable(factor_data, group_variable, variable_name)) %>%
+    select(Variable, Ten_Year_Risk_CHD, everything())  %>%
+  flextable() %>%
+  theme_box() %>%
+  align(align = "center", part = "all") %>%
+  merge_v(j = c("Ten_Year_Risk_CHD", "Variable"))
+
+```
+
+
+
+
+
+# Визуализация
+
+## Количественные переменные
+
+1) Для каждой количественной переменной сделайте боксплоты по группам. Расположите их либо на отдельных рисунках, либо на одном, но читаемо;
+
+2) Наложите на боксплоты beeplots - задание со звёздочкой.
+
+3) Раскрасьте боксплоты с помощью библиотеки RColorBrewer.
+
+```{r fig.width=18, fig.height=20, message = FALSE }
+
+
+
+theme_custom <- theme(
+    panel.background = element_rect(fill = "white"),
+    plot.title = element_text(size = 30, hjust = 0.5),
+    plot.subtitle = element_text(size = 25, hjust = 0.5),
+    strip.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 20)
+)
+# Создание боксплотов для всех количественных переменных
+cleaned_data %>%
+  select(Ten_Year_Risk_CHD, where(is.numeric)) %>%
+  pivot_longer(cols = -Ten_Year_Risk_CHD, names_to = "Variable", values_to = "Value") %>%
+  mutate(Ten_Year_Risk_CHD = factor(Ten_Year_Risk_CHD, levels = c("No", "Yes"))) %>%
+  ggplot(aes(x = Ten_Year_Risk_CHD, y = Value, fill = Ten_Year_Risk_CHD)) +
+  geom_boxplot() +
+  geom_jitter(shape = 16, position = position_jitter(0.3), color = "blue", alpha = 0.1) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_custom +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme(panel.spacing = unit(2, "lines")) +
+  labs(title = "Боксплоты с beeplot для количественных переменных", x = "10-летний риск CHD", y = "Значение")
+```
+
+
+
+## Категориальные переменные
+
+1) Сделайте подходящие визуализации категориальных переменных. Обоснуйте, почему выбрали именно этот тип.
+
+```{r fig.width=18, fig.height=20, message = FALSE}
+cleaned_data %>%
+  select(where(is.factor)) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(x = fct_rev(Value), fill = Value)) +
+  geom_bar() +
+  scale_fill_brewer(palette = "Set2", direction = -1) +
+  theme_custom +
+  facet_wrap(~ Variable, scales = "free", ncol = 2, strip.position = "top") +
+  theme(panel.spacing = unit(1, "lines")) +
+  labs(title = "Столбчатые диаграммы для категориальных переменных", x = "Категории", y = "Частота")
+```
+**Обоснование**: 
+Для категориальных переменных используем столбчатые диаграммы, так как они хорошо подходят для представления частотного распределения категорий. Это позволяет наглядно сравнить количество наблюдений в каждой категории.
+
+# Статистические оценки
+
+## Проверка на нормальность
+
+1) Оцените каждую переменную на соответствие нормальному распределению с помощью теста Шапиро-Уилка. Какие из переменных являются нормальными и как как вы это поняли?
+
+```{r}
+# Проверка на нормальность для количественных переменных с использованием теста Шапиро-Уилка
+ cleaned_data %>%
+  select(where(is.numeric)) %>%
+  map(~ shapiro.test(.x)) %>%
+  map_df(~ data.frame(W = .x$statistic, p_value = .x$p.value), .id = "Variable") %>%
+  mutate(Normal_Distribution = ifelse(p_value > 0.05, "Yes", "No"))
+
+```
+**Интерпретация**: 
+Ни одно из распределений не является нормальным, так как P value для теста меньше 0,05
+
+2) Постройте для каждой количественной переменной QQ-плот. Отличаются ли выводы от теста Шапиро-Уилка? Какой метод вы бы предпочли и почему?
+
+```{r fig.width=18, fig.height=20, message = FALSE}
+
+
+# Создание QQ-плотов для всех количественных переменных
+cleaned_data %>%
+  select( where(is.numeric)) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  ggplot(aes(sample = Value)) +
+  stat_qq(color = "lightblue", alpha = 0.8) +
+  stat_qq_line() +
+  scale_color_brewer(palette = "Set2") +
+  facet_wrap(~ Variable, scales = "free") +
+  theme_custom +
+  labs(title = "QQ-плоты для количественных переменных", x = "Теоретические квантили", y = "Выборочные квантили")
+
+
+```
+
+**Комментарий**
+Некоторые распределения довольно близки к нормальному, но расходятся в хвостах. Шапиро-Уилка более чувствителен. На практике может быть полезно использовать qqплоты для приблизительной оценки нормальности распределения и применения соответствующих методов.
+
+
+
+
+3) Ниже напишите, какие ещё методы проверки на нормальность вы знаете и какие у них есть ограничения.
+  
+
+**Ответ**
+Из графических есть гистограмма с кривой нормального распределения. Минус в том, что это приблизительный метод. Из статистических есть еще тест Колмогорова-Смирнова. Очень чувствителен к большим выборкам и, следовательно, не рекомендуется для таких случаев. Также чувствителен к отклонениям в середине распределения.
+
+
+## Сравнение групп
+
+1) Сравните группы (переменная **TenYearCHD**) по каждой переменной (как количественной, так и категориальной). Для каждой переменной выберите нужный критерий и кратко обоснуйте его выбор в комментариях.
+
+# Сравнение групп
+
+## Сравнение переменной TenYearCHD по каждой переменной
+```{r}
+# Сравнение групп по количественным переменным с использованием t-теста и теста Манна-Уитни
+quantitative_vars <- cleaned_data %>% select(where(is.numeric))
+comparison_results <- quantitative_vars %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable) %>%
+  group_map(~ {
+    if (.y$Variable %in% c("Age", "Body_Mass_Index", "Systolic_BP", "Diastolic_BP", "Heart_Rate")) {
+      test <- t.test(Value ~ cleaned_data$Ten_Year_Risk_CHD, data = .x)
+      tibble(Variable = .y$Variable, test_used = "t-test", p_value = test$p.value, statistic = test$statistic, df = test$parameter)
+    } else {
+      test <- wilcox.test(Value ~ cleaned_data$Ten_Year_Risk_CHD, data = .x)
+      tibble(Variable = .y$Variable, test_used = "Mann-Whitney", p_value = test$p.value, statistic = test$statistic, df = NA_real_)
+    }
+  }) %>%
+  bind_rows() %>%
+  print()
+```
+**Обоснование и интерпретация**
+Мы использовали t-test Стъюдента для переменных, распределение которых можно принять за нормальное и тест Манна Уитни для остальных. В итоге получили статистически значимую разницу по всем переменным кроме ЧСС.
+```{r}
+# Сравнение групп по категориальным переменным 
+cleaned_data %>%
+  select(where(is.factor), -Ten_Year_Risk_CHD) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  group_by(Variable) %>%
+  summarise(
+    p_value = ifelse(
+      all(table(Value, cleaned_data$Ten_Year_Risk_CHD) > 0),
+      chisq.test(table(Value, cleaned_data$Ten_Year_Risk_CHD))$p.value,
+      fisher.test(table(Value, cleaned_data$Ten_Year_Risk_CHD))$p.value
+    ),
+    test_used = ifelse(
+      all(table(Value, cleaned_data$Ten_Year_Risk_CHD) > 0),
+      "Chi-square",
+      "Fisher"
+    )
+  ) %>%
+  print()
+```
+**Обоснование и интерпретация**:
+Для категориальных переменных мы использовали тест Фишера, так как в большинстве случаев таблица сопряженности содержит слишком малые частоты (менее 5), что делает применение критерия хи-квадрат нецелесообразным. Значения p-value для большинства переменных значительно меньше 0.05, что говорит о статистически значимой зависимости между переменными и 10-летним риском CHD. Исключение составила переменная `Current_Smoker`, которая имеет p-value 0.21, для нее зависимость не установлена.
+
+
+# Далее идут **необязательные** дополнительные задания, которые могут принести вам дополнительные баллы в том числе в случае ошибок в предыдущих
+
+## Корреляционный анализ
+
+1) Создайте корреляционную матрицу с визуализацией и поправкой на множественные сравнения. Объясните, когда лучше использовать корреляционные матрицы и в чём минусы и плюсы корреляционных исследований.
+
+```{r}
+
+
+
+```
+
+## Моделирование
+
+1) Постройте регрессионную модель для переменной **TenYearCHD**. Опишите процесс построения
+
+```{r}
+
+
+```
+
+
+
+
