@@ -1,0 +1,174 @@
+---
+title: "Estimation of event probability"
+author: "Anton Tikhonenko"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+```
+
+## Модель пациента: исследование вероятности исцеления
+
+
+## Характеристики выздоровления
+
+```{r characteristics}
+
+true_prob <- 0.7 # Истинная вероятность выздоровления
+
+print(true_prob)
+
+
+```
+## Однократная оценка по выборке
+
+```{r sample_1}
+
+n_patients <- 1 # Количество добровольцев 
+
+patients_outcome <- rbinom(n_patients, 1, true_prob)   # Результаты добровольцев
+
+print(patients_outcome)
+
+sample_mean <- mean(patients_outcome)
+
+print(sample_mean)
+
+```
+
+## Набираем статистику
+
+```{r sample_n}
+
+n_patients <- 10 # Количество добровольцев 
+
+n_repeats <- 1000 # Количество повторений эксперимента
+
+df_all_repeats <- data.frame(
+  n_exp = rep(1:n_repeats, each = n_patients),
+  ID =  rep(1:n_patients, n_repeats),
+  recovered = rbinom(n_repeats * n_patients, 1, true_prob)
+)
+
+```
+
+## Оценка среднего в каждом эксперименте
+
+```{r estimations}
+
+df_sample_mean <- df_all_repeats %>% 
+  group_by(n_exp) %>% 
+  dplyr::summarise(mean_rec = mean(recovered)) %>% 
+  ungroup()
+
+ggplot(df_sample_mean, aes(x = mean_rec)) +
+  geom_histogram(color = 'black', fill = 'white', binwidth = 0.2) +
+  theme_bw()
+
+```
+
+## Количественные и качественные итоги
+
+```{r conclusions}
+
+error <- sqrt( mean((df_sample_mean$mean_rec-true_prob)^2) )
+print(error)
+
+```
+
+
+
+
+
+```{r analytics}
+sample_sizes <- 4^(0:5)
+errors_vs_sample_size <- numeric(length(sample_sizes))  # Вектор для хранения ошибок
+
+# Проводим эксперименты для каждого объема выборки
+for (i in seq_along(sample_sizes)) {
+  n_patients <- sample_sizes[i]
+  
+  # Генерация данных: случайные выборки для каждого пациента в каждом повторении эксперимента
+  df_all_repeats <- data.frame(
+    n_exp = rep(1:n_repeats, each = n_patients),
+    ID = rep(1:n_patients, n_repeats),
+    recovered = rbinom(n_repeats * n_patients, 1, true_prob)  # Моделирование исцеления
+  )
+  
+  # Оценка среднего исцеления в каждом эксперименте
+  df_sample_mean <- df_all_repeats %>% 
+    group_by(n_exp) %>% 
+    dplyr::summarise(mean_rec = mean(recovered)) %>% 
+    ungroup()
+  
+  # Вычисление средней абсолютной ошибки
+  errors_vs_sample_size[i] <- mean(abs(df_sample_mean$mean_rec - true_prob))
+}
+
+# Построим график зависимости ошибки от объема выборки
+df <- data.frame(sample_sizes, errors_vs_sample_size)
+df2 <- (df$errors_vs_sample_size - sqrt((true_prob*(1-true_prob)))/ df$sample_sizes)
+print(df2)
+ggplot(df, aes(x = sample_sizes, y = errors_vs_sample_size)) +
+  geom_line(color = "blue") +
+  labs(title = "Ошибка оценки вероятности в зависимости от объема выборки (рост в 4 раза)",
+       x = "Объем выборки", y = "Средняя абсолютная ошибка") +
+  theme_minimal()
+```
+
+## Вывод
+
+Проведя исследование на различных объемах выборки, я установил, что ошибка оценки вероятности обратно пропорциональна квадратному корню из объема выборки. В частности, чтобы уменьшить ошибку в два раза, объем выборки необходимо увеличить в 4 раза.
+
+### Формула
+
+Ошибка оценки вероятности \( E \) связана с объемом выборки \( N \) следующим образом:
+
+\[
+E \propto \frac{1}{\sqrt{N}}
+\]
+
+Таким образом, если \( N \) увеличивается в 4 раза, ошибка \( E \) уменьшается в два раза.
+
+```{r analytics p}
+true_p <- 0.05*(0:20)
+errors_vs_p <- numeric(length(true_p))  # Вектор для хранения ошибок
+n_patients <- 100
+# Проводим эксперименты для каждой истинной вероятности
+for (i in seq_along(true_p)) {
+
+  # Генерация данных: случайные выборки для каждого пациента в каждом повторении эксперимента
+  df_all_repeats <- data.frame(
+    n_exp = rep(1:n_repeats, each = n_patients),
+    ID = rep(1:n_patients, n_repeats),
+    recovered = rbinom(n_repeats * n_patients, 1, true_p[i])  # Моделирование исцеления
+  )
+  
+  # Оценка среднего исцеления в каждом эксперименте
+  df_sample_mean <- df_all_repeats %>% 
+    group_by(n_exp) %>% 
+    dplyr::summarise(mean_rec = mean(recovered)) %>% 
+    ungroup()
+  
+  # Вычисление средней абсолютной ошибки
+  errors_vs_p[i] <- mean(abs(df_sample_mean$mean_rec - true_p[i]))
+}
+
+# Построим график зависимости ошибки от объема выборки
+df <- data.frame(true_p, errors_vs_p)
+#df2 <- (df$errors_vs_p - sqrt((df$true_p*(1-df$true_p)))/ sample_size)
+#print(df)
+ggplot(df, aes(x = true_p, y = errors_vs_p)) +
+  geom_line(color = "blue") +
+  labs(title = "Ошибка оценки вероятности в зависимости от истинной вероятности исхода",
+       x = "Вероятность", y = "Средняя абсолютная ошибка") +
+  theme_minimal()
+```
+## Вывод
+
+График показывает, что средняя абсолютная ошибка оценки вероятности максимальна при вероятности около 0.5(растет вариативность из-за случайных колебаний) и уменьшается по мере приближения к крайним значениям 0 и 1 (результаты становятся более предсказуемыми, что уменьшает ошибку)
