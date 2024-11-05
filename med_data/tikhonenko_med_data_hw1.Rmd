@@ -1,0 +1,194 @@
+---
+title: "Homework 1"
+author: "Tikhonenko A.I."
+date: "2024-11-03"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    theme: flatly
+  word_document:
+    toc: true
+  pdf_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+library(rstatix)
+library(pROC)
+library(gtsummary)
+
+#set.seed(113)
+
+```
+```{r dataread}
+dataset <- read_excel("trauma.xlsx")
+dataset |> head()
+# Преобразуем рост и вес в сантиметры и килограммы
+#dataset$Height <- round(as.numeric(gsub("\"", "", dataset$Height)) * 2.54)
+#dataset$Weight <- round(dataset$Weight / 2.2)
+dataset <- dataset %>% 
+    mutate(across(c(id, Sex, Death), ~ as.factor(.x)))
+dataset <- dataset %>%
+
+    mutate(
+        # Заменим единицы в сантиметрах на единицы в метрах
+        Height = round(as.numeric(gsub("\"", "", Height)) * 2.54),
+        Weight = round(Weight / 2.2),
+        # Заменим "0" на пропущенные значения так как гемоглобин не может быть 0
+        Hb = na_if(Hb, 0)
+           
+
+        )
+dataset |> glimpse()
+dataset %>% summary()
+```
+## 1. Описательные статистики 
+```{r}
+
+dataset %>% 
+    select(Sex,
+           Age,
+           Height,
+           Weight,
+           SBP,
+           DBP,
+           FOUR,
+           GSC,
+           Hb,
+           Death) %>% 
+    tbl_summary()
+```
+
+
+```{r}
+# Описательные статистики 
+
+
+male_hb_min <- 13.5
+male_hb_max <- 16.0
+female_hb_min <- 12.0
+female_hb_max <- 14.0
+
+dataset <- dataset %>% mutate(
+  Low_Hb = ifelse(
+    (Sex == "Male" & Hb < male_hb_min) |
+    (Sex == "Female" & Hb < female_hb_min),
+    1,
+    0
+  )
+)
+
+# Подсчет количества и процента пациентов с низким уровнем гемоглобина
+low_hb_count <- sum(dataset$Low_Hb, na.rm = TRUE)
+low_hb_percentage <- low_hb_count / (nrow(dataset)-sum(is.na(dataset$Hb))) * 100
+
+
+cat("Количество пациентов с низким уровнем гемоглобина: ", low_hb_count, "\n")
+cat("Процент пациентов с низким уровнем гемоглобина: ", round(low_hb_percentage, 2), "%", "\n")
+```
+## 2. Индекс массы тела
+```{r}
+
+dataset <- dataset %>% mutate(
+  BMI = Weight / (Height / 100)^2
+)
+
+# Средний уровень ИМТ (M (SD))
+mean_bmi <- mean(dataset$BMI, na.rm = TRUE)
+sd_bmi <- sd(dataset$BMI, na.rm = TRUE)
+
+# Доля пациентов с ожирением (ИМТ > 30)
+obesity_count <- sum(dataset$BMI > 30, na.rm = TRUE)
+obesity_percentage <- (obesity_count / nrow(dataset)) * 100
+
+# Вывод результатов по ИМТ
+cat("Средний уровень ИМТ (M (SD)): ", round(mean_bmi, 2), " (", round(sd_bmi, 2), ")\n")
+cat("Количество пациентов с ожирением: ", obesity_count, "\n")
+cat("Процент пациентов с ожирением: ", round(obesity_percentage, 2), "%", "\n")
+
+```
+## 3. ROC-кривая для предсказания летального исхода в течение 24 часов по переменной, характеризующей уровень гемоглобина
+```{r}
+
+roc_obj <- roc(dataset$Death, dataset$Hb, levels = c("0", "1"))
+
+# Построение графика ROC-кривой
+
+roc_obj %>% 
+    ggroc() + 
+    labs(title = "ROC-кривая для предсказания летального исхода по уровню гемоглобина",
+       x = "1 - Специфичность",
+       y = "Чувствительность") +
+      theme_bw()
+
+```
+**Коментарий**
+Форма ROC-кривой обусловлена тем, что уровень гемоглобина не является хорошим предиктором летального исхода.
+При низких значениях гемоглобина его влияние может быть значимым, как показатель кровопотери, но в целом он недостаточен для надежного предсказания.
+
+## 4. Площадь под ROC-кривой и 95% доверительный интервал
+
+```{r}
+
+# Площадь под ROC-кривой и 95% доверительный интервал
+cat("Площадь под ROC-кривой (AUC): ", round(auc(roc_obj), 2), "\n")
+cat("95% двусторонний доверительный интервал для AUC: (", round(ci.auc(roc_obj)[1], 2), ", ", round(ci.auc(roc_obj)[3], 2), ")\n")
+
+```
+## 5. ROC-анализ для предсказания летального исхода по шкале комы Глазго
+```{r}
+roc_gcs <- roc(Death ~ GSC, data = dataset, ci = TRUE)
+
+# Оптимальное пороговое значение, чувствительность и специфичность
+roc_gcs %>% coords(x = "best", best.method = "closest.topleft") ->optimal_coords
+# Вывод оптимального порогового значения, чувствительности и специфичности
+cat("Оптимальное пороговое значение по шкале комы Глазго: ", round(optimal_coords$threshold, 2), "\n")
+cat("Чувствительность при оптимальном пороге: ", round(optimal_coords$sensitivity, 2), "\n")
+cat("Специфичность при оптимальном пороге: ", round(optimal_coords$specificity, 2), "\n")
+
+
+# Построение графика ROC-кривой для шкалы комы Глазго
+roc_gcs %>% 
+    ggroc() + 
+    labs(title = "ROC-кривая для предсказания летального исхода по шкале Глазго",
+       x = "1 - Специфичность",
+       y = "Чувствительность") +
+    theme_bw()
+
+```
+
+## 6. Поиск наилучшего предиктора
+```{r message = FALSE}
+
+dataset %>% 
+    
+    select("Age",
+           "Height",
+           "Weight", 
+           "SBP",    
+           "DBP",    
+           "FOUR",   
+           "GSC",    
+           "Hb",     
+           "Death",
+           "BMI"   ) %>% 
+    
+    pivot_longer(cols = !Death) %>% 
+    
+    group_by(name) %>% 
+    
+    summarise(AUC = roc(Death, value, ci = T)$ci[2] %>% round(3),
+              AUC_LCL = roc(Death, value, ci = T)$ci[1] %>% round(3),
+              AUC_UCL = roc(Death, value, ci = T)$ci[3] %>% round(3))
+
+```
+**Коментарий**
+Наибольшая площадь под ROC-кривой (AUC) наблюдается у переменной FOUR (AUC = 0.934). Это означает, что переменная "балл по шкале комы FOUR" является наилучшим предиктором летального исхода в течение 24 часов среди всех представленных количественных переменных. 
+Наименьшая площадь под ROC-кривой (AUC) имеет переменная Height (AUC = 0.481). Это означает, что "рост" является слабым предиктором летального исхода в данном контексте, на уровне случайного числа.
