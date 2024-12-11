@@ -1,1 +1,789 @@
-qwewq
+---
+title: "Visualisation homework 3"
+author: "Anton Tikhonenko"
+date: "2024-11-15"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE, fig.width=14, fig.height=12)
+
+
+library(rstatix)
+library(ggpubr)
+
+library(tidyverse)
+library(ggplot2)
+theme_custom <- theme_bw()+ theme(
+    plot.title = element_text(size = 30, hjust = 0.5),
+    plot.subtitle = element_text(size = 25, hjust = 0.5),
+    strip.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 20)
+  )
+
+theme_set(theme_custom)
+
+library(corrr)
+library(GGally)
+
+```
+
+Задания
+1. Загрузите датасет very_low_birthweight.RDS (лежит в папке домашнего задания). 
+Это данные о 671 младенце с очень низкой массой тела (<1600 грамм), собранные в Duke University Medical Center доктором Майклом О’Ши c 1981 по 1987 г.  Описание переменных см. здесь. Переменными исхода являются колонки 'dead', а также время от рождения до смерти или выписки (выводятся из 'birth' и 'exit'. 7 пациентов были выписаны до рождения). 
+Сделайте копию датасета, в которой удалите колонки с количеством пропусков больше 100, а затем удалите все строки с пропусками. 
+very_low_birthweight.RDS
+
+# Работаем с исходным датафреймом
+
+```{r}
+df <- readRDS("./data/very_low_birthweight.RDS")
+head(df)
+birthdata <- df %>%
+  # Удаление столбцов с более чем 100 пропущенных значений
+  select(where(~ sum(is.na(.)) <= 100)) %>%
+  # Удаление строк с любыми пропущенными значениями
+  drop_na()
+
+
+
+# Проверка результата
+str(birthdata)
+```
+
+2. Постройте графики плотности распределения для числовых переменных. Удалите выбросы, если таковые имеются. Преобразуйте категориальные переменные в факторы. Для любых двух числовых переменных раскрасьте график по переменной ‘inout’.
+Для любых двух числовых переменных раскрасьте график по переменной ‘inout’.
+
+```{r}
+
+# Функция для фильтрации данных без выбросов
+remove_outliers_df <- function(data, cols) {
+  for (col in cols) {
+    q1 <- quantile(data[[col]], 0.25, na.rm = TRUE)
+    q3 <- quantile(data[[col]], 0.75, na.rm = TRUE)
+    iqr <- q3 - q1
+    lower_bound <- q1 - 1.5 * iqr
+    upper_bound <- q3 + 1.5 * iqr
+    data <- data %>% filter(data[[col]] >= lower_bound & data[[col]] <= upper_bound)
+  }
+  return(data)
+}
+
+# Преобразуем категориальные переменные в факторы
+birthdata <- birthdata %>%
+  mutate(
+    across(where(is.character), as.factor),  
+    across(where(~ all(. %in% c(0, 1))), as.factor)  
+  ) %>% filter(hospstay >= 0)
+
+# Получаем имена числовых переменных
+numeric_cols <- birthdata %>% 
+  select(where(is.numeric)) %>% 
+  names()
+
+# Удаляем выбросы
+birthdata <- remove_outliers_df(birthdata, numeric_cols)
+
+
+# Построение графиков плотности для всех числовых переменных
+birthdata %>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value, fill = variable)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ variable, scales = "free", ncol = 2) +
+  labs(title = "Графики плотности числовых переменных",
+       x = "Значение",
+       y = "Плотность") +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+# Выбираем любые две числовые переменные для визуализации
+ggplot(birthdata, aes(x = bwt, y = hospstay, color = as.factor(inout))) +
+  geom_point(alpha = 0.7, size = 3) +
+  labs(title = "График для двух числовых переменных, раскрашенный по 'inout'",
+       x = "Вес",
+       y = "Длительность госпитализации",
+       color = "In/Out") +
+  theme_custom
+```
+
+3.Проведите тест на сравнение значений колонки ‘lowph’ между группами в переменной inout. Вид статистического теста определите самостоятельно. Визуализируйте результат через библиотеку 'rstatix'. Как бы вы интерпретировали результат, если бы знали, что более низкое значение lowph ассоциировано с более низкой выживаемостью?
+
+```{r}
+library(rstatix)
+library(ggpubr)
+
+# Выполнение t-теста
+t_test_result <- birthdata %>%
+  t_test(lowph ~ inout) %>%
+  add_significance() %>%
+  mutate(
+
+    y.position = max(birthdata$lowph, na.rm = TRUE) + 0.5  # Позиция p-value на графике
+  )
+?stat_pvalue_manual
+
+# Визуализация
+ggboxplot(birthdata, x = "inout", y = "lowph", add = "jitter") +
+  stat_pvalue_manual(t_test_result, label = "p_value", y.position = "y.position") +
+  labs(
+    title = "Сравнение значений lowph между группами inout",
+    x = "Группа (inout)",
+    y = "lowph"
+  ) +
+  theme_minimal()
+
+```
+```{r}
+t_test_result <- birthdata %>%
+  t_test(lowph ~ inout) %>%
+  add_significance() 
+  
+
+test_result <- t_test_result  # Или wilcox_test_result
+
+# Визуализация
+ggboxplot(birthdata, x = "inout", y = "lowph", add = "jitter") +
+  stat_pvalue_manual(test_result, label = "p", y.position = max(birthdata$lowph, na.rm = TRUE)) +
+  labs(
+    title = "Сравнение значений lowph между группами inout",
+    x = "Группа (inout)",
+    y = "lowph"
+  ) +
+  theme_custom
+
+```
+
+4.Сделайте новый датафрейм, в котором оставьте только континуальные или ранговые данные, кроме 'birth', 'year' и 'exit'. Сделайте корреляционный анализ этих данных. Постройте два любых типа графиков для визуализации корреляций.
+
+```{r}
+birthdata_n <- birthdata %>% select(where(is.numeric)) %>% select(-birth, -year, -exit)
+# Получаем непосредственно матрицу
+birthdata_cor <- cor(birthdata_n) 
+birthdata_cor
+```
+
+
+```{r}
+corrplot(birthdata_cor, method = "color", type = "lower", 
+         addCoef.col = "grey30", diag = FALSE,
+         cl.pos = "b", tl.col = "grey10",
+         col = COL2('RdBu', 10))
+```
+
+
+```{r}
+library(corrr)
+
+birthdata_cor %>% 
+  network_plot(min_cor = .0)
+```
+
+
+```{r}
+library(GGally)
+ggpairs(birthdata_n, progress = F)
+```
+
+5.Постройте иерархическую кластеризацию на этом датафрейме.
+```{r}
+birthdata_scaled <- birthdata_n  %>% scale()
+
+# Расчёт дистанций между столбцами (переменными)
+birthdata_dist <- dist(t(birthdata_scaled))  # Транспонируем данные для работы со столбцами
+
+# Построение дендрограммы
+hc_cols <- hclust(birthdata_dist, method = "ward.D2")
+plot(hc_cols, main = "Hierarchical Clustering Dendrogram of Columns",
+     xlab = "Variables", ylab = "Height", sub = "")
+```
+6.Сделайте одновременный график heatmap и иерархической кластеризации. Интерпретируйте результат.
+
+```{r}
+library(pheatmap)
+birthdata_dist <- dist(birthdata_scaled)
+
+
+pheatmap(birthdata_scaled, 
+         show_rownames = FALSE, 
+         clustering_distance_rows = birthdata_dist,
+         clustering_method = "ward.D2", 
+         cutree_rows = 4,
+         cutree_cols = length(colnames(birthdata_scaled)),
+         angle_col = 45, 
+         main = "Dendrograms for clustering rows and columns with heatmap")
+```
+**Выыводы**
+На тепловой карте выделяются три группы переменных: биологические показатели (pH, шкала Апгар, количество тромбоцитов), гестационный возраст и вес при рождении, а также длительность пребывания в больнице. Вертикально пациенты условно разделены по уровню здоровья: сверху находятся те с худшими показателями, включая короткую госпитализацию и низкие биологические показатели (вероятно, умершие вскоре после рождения), внизу — пациенты с лучшими показателями. Особое внимание можно уделить подгруппам с сочетаниями высокого Апгар и низкого pH, чтобы оценить их влияние на исход.
+
+7.Проведите PCA анализ на этих данных. Проинтерпретируйте результат. Нужно ли применять шкалирование для этих данных перед проведением PCA?
+
+```{r}
+# Загрузим библиотеки
+library(FactoMineR)
+library(factoextra)
+```
+
+Делаем PCA:
+
+```{r}
+birthdata.pca <- prcomp(birthdata_n, 
+                        scale = T) # Не забываем про стандартизацию
+```
+
+Оценим результат.
+
+```{r}
+summary(birthdata.pca)
+```
+
+Смотрим на "Cumulative Proportion". У нас в данных первые 4 главные
+компоненты объясняют 86% вариации данных. Посмотрим это на графике:
+
+```{r}
+fviz_eig(birthdata.pca, addlabels = T, ylim = c(0, 40))
+```
+
+
+### Анализ переменных по PCA
+
+Посмотрим на график ниже:
+
+```{r}
+fviz_pca_var(birthdata.pca, col.var = "contrib")
+```
+-   Стрелки - средние значения переменных для PC1 (Dim1) и PC2 (Dim2). В скобках указаны проценты объяснённой дисперсии каждой из двух компонент. На каждую последующую PC всегда приходится всё меньше и меньше разброса в данных.
+-   Цвет и близость к кругу - насколько та или иная переменная вносит вклад в анализируемые главные компоненты
+-   Направление - относительная мера близости переменных. Если стрелки расходятся в прямо-противоположные стороны, то переменные отрицательно скоррелированы внутри представленных главных компонент.
+
+В данных мы видим три группы переменных:
+
+-   bwt, gest.
+
+-   hospstay
+
+-   остальные
+
+
+```{r}
+fviz_pca_var(birthdata.pca, 
+             select.var = list(contrib = 3), # Задаём число здесь 
+             col.var = "contrib")
+```
+
+
+Посмотрим из чего состоят 1, 2 и 3 главные компоненты:
+
+```{r}
+fviz_contrib(birthdata.pca, choice = "var", axes = 1, top = 24) # 1
+fviz_contrib(birthdata.pca, choice = "var", axes = 2, top = 24) # 2
+fviz_contrib(birthdata.pca, choice = "var", axes = 3, top = 24) # 3
+```
+
+**Выводы**
+PCA анализ с использованием двух главных компонентов объясняет 61.9% общей дисперсии данных: первая ось (PC1, 43%) отражает основные различия, связанные с длительностью госпитализации, весом при рождении и гестационным возрастом, вторая ось (PC2, 18.9%) — различия, связанные с pH и шкалой Апгар. Шкалирование данных было необходимо, чтобы каждая переменная вносила равный вклад в анализ, независимо от её масштаба. С добавлением третьей компоненты (PC3) начинает проявляться влияние тромбоцитов и шкалы Апгар, что позволяет точнее оценить их вклад.
+
+8. Постройте biplot график для PCA. Раскрасьте его по значению колонки 'dead'.
+```{r}
+# Загрузим библиотеку
+library(ggbiplot) # devtools::install_github("vqv/ggbiplot")
+
+# Сделаем корректные данные для группировки по diabetes.
+birthdata_clear_with_ch <- birthdata 
+ 
+
+# Визуализируем с группировкой по diabetes (для этого переменную нужно сделать фактором)
+ggbiplot(birthdata.pca, 
+         scale=0, 
+         groups = as.factor(birthdata_clear_with_ch$dead), 
+         ellipse = T,
+         alpha = 0.2) +
+  theme_minimal()
+```
+
+9. Переведите последний график в 'plotly'. При наведении на точку нужно, чтобы отображалось id пациента.
+```{r}
+# Установка библиотеки plotly, если ещё не установлена
+
+library(plotly)
+
+# Добавляем колонку с id пациента (если она есть в данных)
+birthdata$id <- seq_len(nrow(birthdata))  # Если id отсутствует, генерируем последовательность
+
+# Преобразуем PCA результаты в датафрейм
+pca_data <- as.data.frame(birthdata.pca$x)
+pca_data$dead <- birthdata$dead  # Добавляем колонку 'dead'
+pca_data$id <- birthdata$id  # Добавляем колонку 'id'
+
+# Строим интерактивный график
+p <- plot_ly(
+  data = pca_data,
+  x = ~PC1, y = ~PC2,  # Главные компоненты
+  type = 'scatter',
+  mode = 'markers',
+  size = 3,
+  color = ~as.factor(dead),  # Раскраска по 'dead'
+  text = ~paste("ID:", id),  # Отображаем id при наведении
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "PCA Biplot with Plotly",
+    xaxis = list(title = "PC1"),
+    yaxis = list(title = "PC2")
+  )
+
+# Отображаем график
+p
+
+```
+10. Дайте содержательную интерпретацию PCA анализу. Почему использовать колонку 'dead' для выводов об ассоциации с выживаемостью некорректно? 
+**Выводы**
+PCA анализ показывает, что основные источники вариации связаны с длительностью госпитализации, весом при рождении, гестационным возрастом, pH и шкалой Апгар, с частичным разделением групп по колонке dead. Однако использовать dead для выводов об ассоциации некорректно, так как PCA — это метод уменьшения размерности, который ориентирован на объяснение дисперсии данных, а не на предсказание или ассоциацию с группами. Перекрытие между группами (dead = 0 и dead = 1) слишком велико, что затрудняет чёткое различие между ними. Кроме того, для практической оценки связи переменных с выживаемостью необходимо было бы исключить hospstay, так как это переменная исхода
+
+11. Приведите ваши данные к размерности в две колонки через UMAP. Сравните результаты отображения точек между алгоритмами PCA и UMAP.
+
+```{r}
+library(tidymodels)
+library(embed)
+
+# Добавляем колонку "death" в данные для работы с UMAP
+birthdata_n$death <- birthdata_clear_with_ch$death
+
+# Приводим данные к двум измерениям через UMAP
+umap_prep <- recipe(~., data = birthdata_n) %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors()) %>%
+  prep() %>%
+  juice()
+
+# Добавляем колонку "death" к результатам UMAP
+umap_prep <- umap_prep %>%
+  mutate(dead = birthdata$dead)
+
+# Визуализация результатов UMAP
+umap_prep %>%
+  ggplot(aes(UMAP1, UMAP2)) +
+  geom_point(aes(color = as.factor(dead)), alpha = 0.7, size = 2) + # Раскраска по переменной "death"
+  scale_color_manual(values = c("0" = "lightgreen", "1" = "red"), labels = c("Выжившие", "Умершие")) +
+  labs(color = "Исход", title = "UMAP Визуализация") +
+  theme_custom
+```
+12. Давайте самостоятельно увидим, что снижение размерности – это группа методов, славящаяся своей неустойчивостью. Измените основные параметры UMAP (n_neighbors и min_dist) и проанализируйте, как это влияет на результаты.
+
+```{r}
+library(tidymodels)
+library(embed)
+
+# Применение UMAP с фиксированными параметрами
+umap_result <- recipe(~., data = birthdata_n) %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors(), neighbors = 5, min_dist = 0.01) %>%
+  prep() %>%
+  juice()
+
+# Визуализация
+umap_result %>%
+  mutate(death = birthdata_clear_with_ch$dead) %>%
+  ggplot(aes(UMAP1, UMAP2, color = as.factor(death))) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_manual(values = c("0" = "lightgreen", "1" = "red"), labels = c("Alive", "Dead")) +
+  labs(title = "UMAP: n_neighbors = 5, min_dist = 0.01", color = NULL) +
+  theme_minimal()
+
+```
+**Вывод**
+На втором графике поменялась локализация и плотность расположения точек соответствующих нашим группам. Группа dead+ больше локализуется справа внизу, но при этом есть "хвост" уъодящий вверх и к центру.
+13. Давайте самостоятельно увидим, что снижение размерности – это группа методов, славящаяся своей неустойчивостью. Пермутируйте 50% и 100% колонки 'bwt'. Проведите PCA и UMAP анализ. Наблюдаете ли вы изменения в куммулятивном проценте объяснённой вариации PCA? В итоговом представлении данных на биплотах для PCA? Отличается ли визуализация данных?
+Перемешае данные
+```{r}
+# Функция для пермутации части данных
+permute_column <- function(data, column, percentage) {
+  n <- nrow(data)
+  n_permute <- floor(n * percentage)  # Количество строк для пермутации
+  indices <- sample(1:n, n_permute)  # Случайные индексы
+  data[indices, column] <- sample(data[[column]][indices])  # Перемешиваем выбранные значения
+  return(data)
+}
+
+# Создание двух версий данных с пермутацией 50% и 100% 'bwt'
+birthdata_perm_50 <- permute_column(birthdata_n, "bwt", 0.5)
+birthdata_perm_100 <- permute_column(birthdata_n, "bwt", 1.0)
+
+```
+Делаем PCA:
+
+```{r}
+birthdata.pca <- prcomp(birthdata_n, 
+                        scale = T) 
+birthdata50.pca <- prcomp(birthdata_perm_50, 
+                        scale = T)
+birthdata100.pca <- prcomp(birthdata_perm_100, 
+                        scale = T)
+```
+
+Оценим результат.
+
+```{r}
+summary(birthdata.pca)
+summary(birthdata50.pca)
+summary(birthdata100.pca)
+```
+
+Смотрим на "Cumulative Proportion". У нас в данных первые 4 главные
+компоненты объясняют 86% вариации данных. Посмотрим это на графике:
+
+```{r}
+fviz_eig(birthdata.pca, addlabels = T, ylim = c(0, 40))
+fviz_eig(birthdata50.pca, addlabels = T, ylim = c(0, 40))
+fviz_eig(birthdata100.pca, addlabels = T, ylim = c(0, 40))
+
+```
+Куммулятивный процент изменился, но не критично. В среднем на 6-7 процентов снизился в обоих случаях.
+
+### Анализ переменных по PCA
+
+Посмотрим на график ниже:
+
+```{r}
+fviz_pca_var(birthdata.pca, col.var = "contrib")
+fviz_pca_var(birthdata50.pca, col.var = "contrib")
+fviz_pca_var(birthdata100.pca, col.var = "contrib")
+
+```
+Видно, что резко снижается значимость bwt, а в последнем случае даже меняется ее направление
+
+```{r}
+
+
+ 
+
+# Визуализируем с группировкой по dead
+ggbiplot(birthdata.pca, 
+         scale=0, 
+         groups = as.factor(birthdata$dead), 
+         ellipse = T,
+         alpha = 0.2) +
+  labs(groups = "Исход", title = "PCA Визуализация оригинал") +
+  
+  theme_custom
+ggbiplot(birthdata50.pca, 
+         scale=0, 
+         groups = as.factor(birthdata$dead), 
+         ellipse = T,
+         alpha = 0.2) +
+  labs(groups = "Исход", title = "PCA Визуализация 50% пермутациии") +
+  theme_custom
+ggbiplot(birthdata100.pca, 
+         scale=0, 
+         groups = as.factor(birthdata$dead), 
+         ellipse = T,
+         alpha = 0.2) +
+  labs(groups = "Исход", title = "PCA Визуализация 100% пермутациии") +
+  theme_custom
+```
+Здесь так же видим изменение ориентации осей и эллипсов
+
+```{r}
+library(tidymodels)
+library(embed)
+
+# Добавляем колонку "death" в данные для работы с UMAP
+birthdata_n$death <- birthdata$death
+birthdata_perm_50$death <- birthdata$death
+birthdata_perm_100$death <- birthdata$death
+
+# Приводим данные к двум измерениям через UMAP
+umap_prep <- recipe(~., data = birthdata_n) %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors()) %>%
+  prep() %>%
+  juice()
+umap_prep50 <- recipe(~., data = birthdata_perm_50) %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors()) %>%
+  prep() %>%
+  juice()
+umap_prep100 <- recipe(~., data = birthdata_perm_100) %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors()) %>%
+  prep() %>%
+  juice()
+
+# Добавляем колонку "death" к результатам UMAP
+umap_prep <- umap_prep %>%
+  mutate(dead = birthdata$dead)
+umap_prep50 <- umap_prep50 %>%
+  mutate(dead = birthdata$dead)
+umap_prep100 <- umap_prep100 %>%
+  mutate(dead = birthdata$dead)
+
+# Визуализация результатов UMAP
+umap_prep %>%
+  ggplot(aes(UMAP1, UMAP2)) +
+  geom_point(aes(color = as.factor(dead)), alpha = 0.7, size = 2) + # Раскраска по переменной "death"
+  scale_color_manual(values = c("0" = "lightgreen", "1" = "red"), labels = c("Выжившие", "Умершие")) +
+  labs(color = "Исход", title = "UMAP Визуализация оригинал") +
+  theme_custom
+umap_prep50 %>%
+  ggplot(aes(UMAP1, UMAP2)) +
+  geom_point(aes(color = as.factor(dead)), alpha = 0.7, size = 2) + # Раскраска по переменной "death"
+  scale_color_manual(values = c("0" = "lightgreen", "1" = "red"), labels = c("Выжившие", "Умершие")) +
+  labs(color = "Исход", title = "UMAP Визуализация 50% пермутациии") +
+  theme_custom
+umap_prep100 %>%
+  ggplot(aes(UMAP1, UMAP2)) +
+  geom_point(aes(color = as.factor(dead)), alpha = 0.7, size = 2) + # Раскраска по переменной "death"
+  scale_color_manual(values = c("0" = "lightgreen", "1" = "red"), labels = c("Выжившие", "Умершие")) +
+  labs(color = "Исход", title = "UMAP Визуализация 100% пермутации") +
+  theme_custom
+
+
+```
+
+Первая пермутация смещает облако точек и немного меняет плотность, вторая полностью переносит их вправо.
+
+```{r}
+```
+```{r}
+```
+```{r}
+```
+14. Давайте проведем анализ чувствительности. Проведите анализ, как в шагах 4-6 для оригинального с удалением всех строк с пустыми значениями (т.е. включая колонки с количеством пропущенных значений больше 100), а затем для оригинального датафрейма с импутированием пустых значений средним или медианой. Как отличаются получившиеся результаты? В чем преимущества и недостатки каждого подхода?
+
+
+  
+
+```{r}
+skimr::skim(df)
+
+birthdata_clear <- df %>%
+  drop_na()
+
+birthdata_imputed <- df %>%
+  mutate(across(
+    where(is.numeric),  # Только для числовых колонок
+    ~ ifelse(is.na(.), median(., na.rm = TRUE), .)  # Импутация средним
+  ))
+
+# Преобразуем категориальные переменные в факторы
+birthdata_clear <- birthdata_clear %>%
+  mutate(
+    across(where(is.character), as.factor),  
+    across(where(~ all(. %in% c(0, 1))), as.factor)  
+  ) %>% filter(hospstay >= 0)
+
+birthdata_imputed <- birthdata_imputed %>%
+  mutate(
+    across(where(is.character), as.factor),  
+    across(where(~ all(. %in% c(0, 1))), as.factor)  
+  ) %>% filter(hospstay >= 0)
+
+birthdata_imputed_n <- birthdata_imputed %>% select(where(is.numeric)) %>% select(-birth, -year, -exit)
+birthdata_clear_n <- birthdata_clear %>% select(where(is.numeric)) %>% select(-birth, -year, -exit)
+skimr::skim(birthdata_clear)
+skimr::skim(birthdata_imputed)
+
+```
+Очищенный датасет сократился до 173 наблюдений. Импутированный - 648
+
+```{r}
+# Получаем непосредственно матрицу
+birthdata_clear_cor <- cor(birthdata_imputed_n) 
+birthdata_imputed_cor <- cor(birthdata_clear_n)
+corrplot(birthdata_clear_cor, method = "color", type = "lower", 
+         addCoef.col = "grey30", diag = FALSE,
+         cl.pos = "b", tl.col = "grey10",
+         col = COL2('RdBu', 10))
+corrplot(birthdata_imputed_cor, method = "color", type = "lower", 
+         addCoef.col = "grey30", diag = FALSE,
+         cl.pos = "b", tl.col = "grey10",
+         col = COL2('RdBu', 10))
+
+```
+
+
+```{r}
+library(corrr)
+
+birthdata_clear_cor %>% 
+  network_plot(min_cor = .0)
+birthdata_imputed_cor %>% 
+  network_plot(min_cor = .0)
+
+```
+
+На очищенных данных слабее выражены отрицательные корреляции с периодом госпитализации, но более четко видны корреляции веса и срока гестации. Переменная lol имеет слабую корреляцию в обоих случаях.
+```{r}
+birthdata_clear_scaled <- birthdata_clear_n  %>% scale()
+
+# Расчёт дистанций между столбцами (переменными)
+birthdata_clear_dist <- dist(t(birthdata_clear_scaled))  # Транспонируем данные для работы со столбцами
+
+# Построение дендрограммы
+hc_cols <- hclust(birthdata_clear_dist, method = "ward.D2")
+plot(hc_cols, main = "Hierarchical Clustering Dendrogram of Columns clear",
+     xlab = "Variables", ylab = "Height", sub = "")
+
+birthdata_imputed_scaled <- birthdata_imputed_n  %>% scale()
+
+# Расчёт дистанций между столбцами (переменными)
+birthdata_imputed_dist <- dist(t(birthdata_imputed_scaled))  # Транспонируем данные для работы со столбцами
+
+# Построение дендрограммы
+hc_cols <- hclust(birthdata_imputed_dist, method = "ward.D2")
+plot(hc_cols, main = "Hierarchical Clustering Dendrogram of Columns imputed",
+     xlab = "Variables", ylab = "Height", sub = "")
+
+```
+Импутированный вариант иерархии выглядит более логично
+
+```{r}
+
+birthdata_clear_dist <- dist(birthdata_clear_scaled)
+
+
+pheatmap(birthdata_clear_scaled, 
+         show_rownames = FALSE, 
+         clustering_distance_rows = birthdata_clear_dist,
+         clustering_method = "ward.D2", 
+         cutree_rows = 4,
+         cutree_cols = length(colnames(birthdata_clear_scaled)),
+         angle_col = 45, 
+         main = "Dendrograms for clustering rows and columns with heatmap")
+
+
+birthdata_imputed_dist <- dist(birthdata_imputed_scaled)
+
+
+pheatmap(birthdata_imputed_scaled, 
+         show_rownames = FALSE, 
+         clustering_distance_rows = birthdata_imputed_dist,
+         clustering_method = "ward.D2", 
+         cutree_rows = 4,
+         cutree_cols = length(colnames(birthdata_imputed_scaled)),
+         angle_col = 45, 
+         main = "Dendrograms for clustering rows and columns with heatmap")
+
+
+```
+Здесь явно видно, что выбросы в переменных hospstay lol сдвинули heatmap в синий спектр. На импутированном датасете явно видно сглаженность разнообразия.
+**Выыводы**
+Очищенный датасет с удалением пропущенных значений содержит 173 наблюдения, что уменьшает объем данных и может приводить к потере информации. Импутированный датасет с 648 наблюдениями позволяет сохранить больше данных и обеспечивает более полную картину, но сглаживает различия между наблюдениями.
+
+Преимущества и недостатки:
+Удаление пропущенных данных исключает неопределённости, улучшает статистическую достоверность анализа, но снижает мощность исследования из-за уменьшения выборки. Импутация сохраняет больше данных, позволяет выявить общие закономерности, но может привести к сглаживанию уникальных особенностей данных.
+Выводы могут быть искажены, если процесс импутации не соответствует реальному распределению данных.
+
+15. Давайте проведем анализ чувствительности. Сделайте то же, что в пункте 14, но для методов снижения размерности – PCA и UMAP. Проанализируйте результаты.
+
+Делаем PCA:
+
+```{r}
+birthdata_clear.pca <- prcomp(birthdata_clear_n, 
+                        scale = T) 
+summary(birthdata_clear.pca)
+birthdata_imputed.pca <- prcomp(birthdata_imputed_n, 
+                        scale = T) 
+summary(birthdata_imputed.pca)
+```
+
+Смотрим на "Cumulative Proportion". В импутированных данных значения ниже. Посмотрим это на графике:
+
+```{r}
+fviz_eig(birthdata_clear.pca, addlabels = T, ylim = c(0, 40))
+fviz_eig(birthdata_imputed.pca, addlabels = T, ylim = c(0, 40))
+```
+
+
+### Анализ переменных по PCA
+
+Посмотрим на график ниже:
+
+```{r}
+fviz_pca_var(birthdata_clear.pca, col.var = "contrib")
+fviz_pca_var(birthdata_imputed.pca, col.var = "contrib")
+```
+Очищенные данные дают более выраженные различия между переменными, направление стрелок разнообразно видны группы переменных и корреляции в том числе отрицательные. На импутированных данных более кучное расположение стрелок за исключением lol не имеющей большого вклада. все остальные показатели находятся в пределах одного квадранта. 
+
+
+8. Постройте biplot график для PCA. Раскрасьте его по значению колонки 'dead'.
+```{r}
+
+ggbiplot(birthdata_clear.pca, 
+         scale=0, 
+         groups = as.factor(birthdata_clear$dead), 
+         ellipse = T,
+         alpha = 0.2) +
+  theme_custom
+ggbiplot(birthdata_imputed.pca, 
+         scale=0, 
+         groups = as.factor(birthdata_imputed$dead), 
+         ellipse = T,
+         alpha = 0.2) +
+  theme_custom
+```
+Здесь так же видно, более четкое разделение в группе очищенных данных. В импутированных
+
+UMAP
+
+```{r}
+
+
+# Приводим данные к двум измерениям через UMAP
+umap_prep <- recipe(~., data = birthdata_clear_n) %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors()) %>%
+  prep() %>%
+  juice()
+
+# Добавляем колонку "death" к результатам UMAP
+umap_prep <- umap_prep %>%
+  mutate(dead = birthdata_clear$dead)
+
+# Визуализация результатов UMAP
+umap_prep %>%
+  ggplot(aes(UMAP1, UMAP2)) +
+  geom_point(aes(color = as.factor(dead)), alpha = 0.7, size = 2) + # Раскраска по переменной "death"
+  scale_color_manual(values = c("0" = "lightgreen", "1" = "red"), labels = c("Выжившие", "Умершие")) +
+  labs(color = "Исход", title = "UMAP Визуализация удаленные") +
+  theme_custom
+
+
+# Приводим данные к двум измерениям через UMAP
+umap_prep <- recipe(~., data = birthdata_imputed_n) %>%
+  step_normalize(all_predictors()) %>%
+  step_umap(all_predictors()) %>%
+  prep() %>%
+  juice()
+
+# Добавляем колонку "death" к результатам UMAP
+umap_prep <- umap_prep %>%
+  mutate(dead = birthdata_imputed$dead)
+
+# Визуализация результатов UMAP
+umap_prep %>%
+  ggplot(aes(UMAP1, UMAP2)) +
+  geom_point(aes(color = as.factor(dead)), alpha = 0.7, size = 2) + # Раскраска по переменной "death"
+  scale_color_manual(values = c("0" = "lightgreen", "1" = "red"), labels = c("Выжившие", "Умершие")) +
+  labs(color = "Исход", title = "UMAP Визуализация импутированные") +
+  theme_custom
+```
+UMAP для очищенного датасетадемонстрирует относительно четкую сегментацию точек. Однако, из-за значительного сокращения данных (173 наблюдения), плотность точек ниже, и некоторые кластеры выглядят менее выраженными.
+UMAP для импутированного датасета (график 2) демонстрирует более равномерное распределение точек благодаря восстановлению пропусков. Более четко видна структура данных. Видно скопление красных точек в правой части от которой расходятся "ветви" влево.
+
+**Общий вывод**
+Очищенные данные подходят для анализа с акцентом на ключевые наблюдения, но страдают от низкой плотности точек и возможной потери информации. Импутированные данные демонстрируют более полную картину распределения, что делает визуализацию устойчивее и информативнее для общего анализа, однако снижается точность локальных закономерностей. Рекомендуется использовать оба подхода в зависимости от целей исследования.
+
+
+
+
+
+
