@@ -1,0 +1,135 @@
+---
+title: "Анализ связи физической активности с HbA1c"
+author: "Anton Tikhonenko"
+date: "2024-12-20"
+output: html_document
+---
+
+---
+title: "Анализ связи физической активности с HbA1c"
+output:
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(broom)
+library(ggplot2)
+```
+
+# Введение
+
+В данном отчёте проводится регрессионный анализ связи физической активности с уровнем гликированного гемоглобина (HbA1c).
+
+# Загрузка данных
+
+```{r data-load}
+data <- readxl::read_excel("./HW_data.xlsx")
+codebook <- readxl::read_excel("HW_codebook.xlsx", sheet = 1)  # Измените номер листа при необходимости
+head(data)
+```
+
+# Подготовка данных
+
+```{r data-prep}
+# Преобразуем категориальные переменные в факторы
+categorical_vars <- c("variable1", "variable2")  # Замените на названия категориальных переменных
+
+data <- data %>%
+  mutate(across(all_of(categorical_vars), as.factor))
+
+# Проверим структуру данных
+str(data)
+```
+
+# Эксплораторный анализ (EDA)
+
+```{r eda}
+# Описательная статистика
+summary(data)
+
+# Корреляция между количественными переменными
+correlation_matrix <- data %>%
+  select_if(is.numeric) %>%
+  cor()
+
+correlation_matrix
+
+# Визуализация распределений
+ggplot(data, aes(x = physical_activity)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Распределение физической активности", x = "Физическая активность", y = "Частота")
+
+ggplot(data, aes(x = HbA1c)) +
+  geom_histogram(binwidth = 0.5) +
+  labs(title = "Распределение HbA1c", x = "HbA1c", y = "Частота")
+```
+
+# Построение моделей
+
+## Модель без ковариат
+
+```{r crude-model}
+crude_model <- lm(HbA1c ~ physical_activity, data = data)
+summary(crude_model)
+```
+
+## Модель с ковариатами
+
+```{r adjusted-model}
+adjusted_model <- lm(HbA1c ~ physical_activity + age + sex + BMI, data = data)  # Укажите нужные ковариаты
+summary(adjusted_model)
+```
+
+# Диагностика моделей
+
+```{r model-diagnostics}
+# Остатки модели без ковариат
+par(mfrow = c(2, 2))
+plot(crude_model)
+
+# Остатки модели с ковариатами
+plot(adjusted_model)
+```
+
+# Интерпретация результатов
+
+```{r results}
+# Сравнение моделей
+crude_results <- tidy(crude_model)
+adjusted_results <- tidy(adjusted_model)
+
+list(Crude = crude_results, Adjusted = adjusted_results)
+
+# Графическое представление
+coef_data <- bind_rows(
+  crude_results %>% mutate(Model = "Без ковариат"),
+  adjusted_results %>% mutate(Model = "С ковариатами")
+)
+
+ggplot(coef_data, aes(x = term, y = estimate, color = Model)) +
+  geom_point(position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = estimate - std.error, ymax = estimate + std.error),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = "Сравнение оценок эффектов", x = "Переменная", y = "Оценка")
+```
+
+# Проверка гипотез
+
+```{r hypothesis-testing}
+# Проверка на значимость эффекта физической активности
+anova(crude_model, adjusted_model)
+```
+
+# Пол как модификатор эффекта
+
+```{r interaction}
+interaction_model <- lm(HbA1c ~ physical_activity * sex + age + BMI, data = data)
+summary(interaction_model)
+```
+
+# Выводы
+
+- Основные выводы по результатам анализа будут добавлены здесь.
