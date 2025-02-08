@@ -46,6 +46,8 @@ theme_set(theme_custom)
 ```{r data-load}
 data <- readxl::read_excel("./HW_data.xlsx")
 head(data)
+data %>% select("PAD630", "PAD645", "PAD675","PAQ625", "PAQ640", "PAQ670","PAD615", "PAD660","PAQ610", "PAQ655" ) %>% summary()
+
 ```
 
 # Подготовка данных
@@ -65,15 +67,17 @@ data <- data %>%
     Vigorous_Minutes = rowSums(across(all_of(vigorous_minutes_vars)) *
                                  across(all_of(vigorous_days_vars)), na.rm = TRUE),
     Activity_Index = round((Moderate_Minutes + 2 * Vigorous_Minutes) / 150, 2),
+    Activity_Presence = Activity_Index !=0,  
     Activity_Category = case_when(
       Moderate_Minutes >= 150 | Vigorous_Minutes >= 75 ~ "Active",
       TRUE ~ "Inactive"
+    
     )
   )
 
 # Сводка данных
 summary <- data %>%
-  select(Moderate_Minutes, Vigorous_Minutes, Activity_Index, Activity_Category) %>%
+  select(Moderate_Minutes, Vigorous_Minutes, Activity_Index, Activity_Category, Activity_Presence) %>%
   summary()
 
 # Вывод сводки
@@ -93,6 +97,9 @@ print(summary)
 4. **Activity_Category**  
 Классифицирует участников как "Physically Active" или "Physically Inactive" на основе выполнения рекомендаций ВОЗ (≥150 минут умеренной или ≥75 минут интенсивной активности в неделю). Категория помогает быстро интерпретировать соответствие участников стандартам активности.
 
+5. **Activity_Presence**
+Наличие физической активности по опроснику. 
+
 ```{r data-modify}
 
 # Выбор необходимых переменных и преобразование
@@ -103,7 +110,7 @@ cleaned_data <- data %>%
     SMQ020, SMQ040, MCQ010, MCQ035, MCQ160C, MCQ160B,
     MCQ160E, MCQ160F, MCQ160M, MCQ170M, MCQ160O,
     MCQ220, BPQ020, BPQ050A, DIQ010, DIQ070, 
-    Moderate_Minutes, Vigorous_Minutes, Activity_Index, Activity_Category
+    Moderate_Minutes, Vigorous_Minutes, Activity_Index, Activity_Category, Activity_Presence
   ) %>%
   rename(
     ID = SEQN,
@@ -256,13 +263,13 @@ glimpse(cleaned_data)
   - Пол (Sex).
 
 **Proxy-конфаундеры:**
-  - Индекс массы тела (BMI).
   - Курение (Smoking).
 
 
 #### **Коллайдеры:**
 Переменные, в которых сходятся независимые причинные пути, и корректировка на них может привести к смещению:
   - Артериальное давление (Blood pressure) между HbA1c и сопутствующими включая сопутствующие заболевания.
+  - Лечение от диабета (Diabetic medication)
 
 #### **Медиаторы:**
 Переменные, через которые физическая активность оказывает влияние на HbA1c:
@@ -346,14 +353,64 @@ ggplot(data = cleaned_data, aes(x = Activity_Index, y = Glycohemoglobin)) +
  
 # Построение моделей
 
+## Тестирование nested переменной
+
+```{r}
+
+library(tidyverse)
+library(modelsummary)
+
+# Проверка структуры данных
+glimpse(cleaned_data)
+
+# Построение nested модели
+fit_nested <- lm(
+  Glycohemoglobin ~ Activity_Presence * Activity_Index + 
+    Sex + Race + Comorbidities_Score + Currently_Smokes,
+  data = cleaned_data
+)
+
+# Модель только с наличием физической активности
+fit_binary <- lm(
+  Glycohemoglobin ~ Activity_Presence + 
+    Sex + Race + Comorbidities_Score + Currently_Smokes,
+  data = cleaned_data
+)
+
+# Модель только с уровнем физической активности
+fit_duration <- lm(
+  Glycohemoglobin ~ Activity_Index + 
+    Sex + Race + Comorbidities_Score + Currently_Smokes,
+  data = cleaned_data
+)
+
+# Сравнение моделей
+modelsummary(
+  list(
+    "Nested модель (наличие * индекс ФА)" = fit_nested,
+    "Только наличие ФА" = fit_binary,
+    "Только индекс ФА" = fit_duration
+  ),
+  stars = TRUE
+)
+
+
+```
+
+
 ## Модель без ковариат
 
 ```{r crude-model}
-# Модель 1: Без ковариат
-model_1 <- lm(Glycohemoglobin ~ Activity_Index, data = cleaned_data)
-summary(model_1)
-par(mfrow = c(2, 2))
-plot(model_1)
+
+# Исправленная модель без коллинеарности
+model_1 <- lm(
+  Glycohemoglobin ~ Activity_Presence + I(Activity_Presence * Activity_Index),
+  data = cleaned_data
+)
+
+summary(model_fixed)
+
+
 
 ```
 
@@ -361,12 +418,15 @@ plot(model_1)
 
 ```{r adjusted-model}
 # Модель 2: С учетом ковариат
-model_2 <- lm(Glycohemoglobin ~ Activity_Index + Sex + Race + 
-                Comorbidities_Score + Currently_Smokes, data = cleaned_data)
-summary(model_2)
-par(mfrow = c(2, 2))
-plot(model_2)
-crPlots(model_2)
+
+model_2 <- lm(
+  Glycohemoglobin ~ Activity_Presence + I(Activity_Presence * Activity_Index) +
+    Sex + Race + Comorbidities_Score + Currently_Smokes,
+  data = cleaned_data
+)
+
+summary(model_fixed)
+
 ```
 ## Сравнение моделей
 
@@ -378,13 +438,19 @@ anova(model_1, model_2)
 ## Диагностика моделей
 
 ```{r model-diagnostics}
-# Остатки модели без ковариат
 par(mfrow = c(2, 2))
+
+# Остатки модели без ковариат
 plot(model_1)
 
 # Остатки модели с ковариатами
 plot(model_2)
 crPlots(model_2)
+
+# Проверка гетероскедастичности
+library(car)
+ncvTest(model_2)
+
 ```
 
 ### Диагностика и необходимость коррекции
@@ -411,38 +477,14 @@ crPlots(model_2)
 
 
 ```{r}
-# Удаление выбросов по индексу активности
-cleaned_data_no_outliers <- cleaned_data %>%
-  filter(Activity_Index <= 40)
+library(sandwich)
+library(lmtest)
 
-# Логарифмирование индекса активности
-cleaned_data_no_outliers <- cleaned_data_no_outliers %>%
-  mutate(Log_Activity_Index = log(Activity_Index + 1/150))  # Добавляем 1 минуту, чтобы избежать log(0)
+# Пересчитываем стандартные ошибки с учетом гетероскедастичности
+coeftest(model_2, vcov = vcovHC(model_2, type = "HC3"))
 
-# Построение обновленной модели
-model_modified_1 <- lm(
-  Glycohemoglobin ~ Log_Activity_Index,
-  data = cleaned_data_no_outliers
-)
-
-# Результаты модели
-summary(model_modified_1)
-
-model_modified_2 <- lm(
-  Glycohemoglobin ~ Log_Activity_Index + Sex + Race + Comorbidities_Score + Currently_Smokes,
-  data = cleaned_data_no_outliers
-)
-
-# Результаты модели
-summary(model_modified_2)
-
-# Диагностические графики
-par(mfrow = c(2, 2))
-plot(model_modified_1)
-
-plot(model_modified_2)
-crPlots(model_2)
 ```
+
 ```{r}
 
 
